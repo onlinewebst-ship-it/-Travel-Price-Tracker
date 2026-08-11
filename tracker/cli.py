@@ -201,52 +201,13 @@ def track_hotels(client: AmadeusClient | None) -> None:
                         ),
                     )
 
-        if tp.is_enabled():
-            tp_location = cfg.get("travelpayouts_location")
-            if not tp_location:
-                print(f"[{label}] travelpayouts: skipped (no 'travelpayouts_location' set in config/hotels.json)")
-            else:
-                try:
-                    tp_hotels = tp.cached_hotel_prices(
-                        location=tp_location,
-                        checkin_date=cfg["checkin_date"],
-                        checkout_date=cfg["checkout_date"],
-                        adults=cfg.get("adults", 1),
-                        currency=CURRENCY,
-                    )
-                except Exception as e:
-                    print(f"[{label}] travelpayouts: ERROR: {e}")
-                    tp_hotels = []
-
-                if tp_hotels:
-                    cheapest = min(tp_hotels, key=lambda h: h.get("priceFrom", float("inf")))
-                    if "priceFrom" not in cheapest:
-                        # Docs promised this field; the flight endpoint already showed
-                        # Travelpayouts' actual response shape can differ from docs.
-                        # Fail loud with the real keys instead of crashing on a KeyError.
-                        print(f"[{label}] hotellook: ERROR: expected 'priceFrom' field not found. "
-                              f"Got keys: {sorted(cheapest.keys())} — report this so the field mapping can be fixed.")
-                    else:
-                        tp_price = float(cheapest["priceFrom"])
-                        tp_prev_min = db.min_hotel_price(label, source="hotellook")
-                        db.record_hotel_price(
-                            label=label,
-                            hotel_id=str(cheapest.get("hotelId", "unknown")),
-                            hotel_name=cheapest.get("hotelName"),
-                            city_code=cfg["city_code"],
-                            checkin_date=cfg["checkin_date"],
-                            checkout_date=cfg["checkout_date"],
-                            adults=cfg.get("adults", 1),
-                            price=tp_price,
-                            currency=CURRENCY,
-                            source="hotellook",
-                        )
-                        tp_is_new_low = tp_prev_min is not None and tp_price < tp_prev_min
-                        tp_marker = " *** NEW LOW ***" if tp_is_new_low else ""
-                        print(f"[{label}] hotellook: {cheapest.get('hotelName', 'unknown')}: "
-                              f"{tp_price:.2f} {CURRENCY} ({len(tp_hotels)} cached hotels){tp_marker}")
-                else:
-                    print(f"[{label}] hotellook: no cached hotel prices found")
+        # Hotellook (engine.hotellook.com) shut down completely on 20 Oct 2025 —
+        # confirmed by a live 404 from this exact code, and independently by
+        # Travelpayouts' own "closure of Hotellook" notice. Not attempting the
+        # call anymore: it's a dead host, not a transient error, and hitting it
+        # every run just adds noise and a slow timeout for no result.
+        print(f"[{label}] hotellook: skipped — Hotellook shut down 20 Oct 2025, "
+              f"no confirmed replacement wired in yet (see README)")
 
 
 def cmd_track(_args: argparse.Namespace) -> None:

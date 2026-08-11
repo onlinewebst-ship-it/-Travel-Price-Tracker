@@ -1,14 +1,20 @@
-"""Optional second price source: Travelpayouts (Aviasales) Data API for flights
-and Hotellook (also part of Travelpayouts) for hotels.
+"""Travelpayouts (Aviasales) Data API — the primary price source now that
+Amadeus's free API is gone (see README).
 
-Both are official, publicly documented, free-to-register APIs — no scraping,
-no proxies. They return cached/aggregated fares (prices other users have
-recently found), not always a live real-time search like Amadeus, so treat
-this as a second opinion / trend signal rather than a bookable quote.
+`latest_flight_price` is confirmed working against a live token (verified
+manually, field names corrected to match the real response — see git
+history). Returns cached/aggregated fares (prices other users have recently
+found), not a live real-time search, so treat it as a trend signal rather
+than a bookable quote for your exact dates.
 
-Docs:
-  Flights:  https://travelpayouts.github.io/slate/#flight_data_api
-  Hotels:   https://tp-support.stygium.io/hc/en-us/articles/203956583
+`cached_hotel_prices` targets the Hotellook API, which shut down completely
+as a brand on 20 Oct 2025 (confirmed both by a live 404 and Travelpayouts'
+own closure notice). Kept here for reference / easy resurrection if
+Travelpayouts ships a documented replacement, but tracker/cli.py does not
+call it — don't wire it back in without confirming a real, working
+replacement endpoint first.
+
+Docs (flights): https://travelpayouts.github.io/slate/#flight_data_api
 
 Sign up (free): https://www.travelpayouts.com/ -> get an API token from
 your account's "API" section, put it in TRAVELPAYOUTS_TOKEN in .env.

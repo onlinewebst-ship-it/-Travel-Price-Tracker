@@ -11,21 +11,25 @@ Prices are shown in GBP by default (configurable) for a UK-based traveller.
 > on **17 July 2026**. Only their Enterprise APIs remain, which require a
 > business application and sales approval — not usable for personal
 > tracking. The code still supports Amadeus if you have Enterprise access,
-> but it's optional now. **[Travelpayouts + Hotellook](#1-get-a-free-travelpayouts-api-token)
+> but it's optional now. **[Travelpayouts](#1-get-a-free-travelpayouts-api-token)
 > is the primary source going forward.**
+>
+> **⚠️ Hotel prices are currently unsupported.** The hotel data source this
+> project used (Hotellook) shut down completely as a brand on **20 October
+> 2025** — confirmed live (a real 404) and independently (Travelpayouts'
+> own closure notice). Flights work fine via Travelpayouts below; hotel
+> tracking needs a new source wired in — see [§4](#4-optional-live-exact-date-search-duffel).
 
 ## 1. Get a free Travelpayouts API token
 
 [Travelpayouts](https://www.travelpayouts.com/) (Aviasales' affiliate/data
-platform) offers a free, self-service **Data API** for flights and a
-companion **Hotellook** API for hotels — genuinely instant signup, no
-business approval needed.
+platform) offers a free, self-service **Data API** for flights — genuinely
+instant signup, no business approval needed. (Their companion Hotellook
+hotel API is discontinued — see the warning above.)
 
 1. Sign up free at https://www.travelpayouts.com/, then find your API token
    under your account's API/Tools section.
 2. Copy `.env.example` to `.env` and set `TRAVELPAYOUTS_TOKEN`.
-3. For hotels, add a `"travelpayouts_location"` field to each entry in
-   `config/hotels.json` (a plain city name like `"Paris"` — see the example).
 
 **Important limitation:** this endpoint returns the cheapest fare *other
 users have recently found* for a route (any nearby date, cached — not a
@@ -44,8 +48,8 @@ cp .env.example .env   # then edit .env with your Travelpayouts token
 
 ## 3. Configure, run, and schedule it
 
-Edit `config/routes.json` for flights and `config/hotels.json` for hotels.
-Each entry needs a unique `label` (used for history lookups and alerts):
+Edit `config/routes.json` for flights. Each entry needs a unique `label`
+(used for history lookups and alerts):
 
 ```json
 {
@@ -58,6 +62,10 @@ Each entry needs a unique `label` (used for history lookups and alerts):
 }
 ```
 
+`config/hotels.json` still exists and is still read, but every entry in it
+currently just prints a "hotellook: skipped, discontinued" line — see the
+warning above. Leave it as-is or empty it out; either is fine.
+
 Airport/city codes are IATA codes (e.g. `LHR` = London Heathrow, `PAR` = Paris).
 
 ```bash
@@ -68,8 +76,8 @@ python -m tracker.cli report LHR-BCN   # full price history for one route/hotel
 
 Each `track` run appends a row to `prices.db` (SQLite, gitignored) so you
 build up a price history over time. Results are tagged by source
-(`travelpayouts`, `hotellook`, `amadeus`) so different sources' prices are
-never compared against each other as if they were the same kind of quote.
+(`travelpayouts`, `amadeus`) so different sources' prices are never
+compared against each other as if they were the same kind of quote.
 
 Schedule it with cron, matching how often prices actually change:
 
@@ -81,11 +89,12 @@ Schedule it with cron, matching how often prices actually change:
 Optional email alerts on a new lowest price: set `SMTP_HOST` and
 `ALERT_EMAIL_TO` in `.env` (see `.env.example`).
 
-## 4. Optional: live, exact-date search (Duffel)
+## 4. Optional: live, exact-date search — and the only current hotel option (Duffel)
 
 If you want real live prices for your exact dates (not cached "recently
-found" fares), [Duffel](https://duffel.com/) is a genuinely self-service
-modern replacement for what Amadeus used to offer — covers flights (300+
+found" fares), or you want hotel tracking back at all (see the warning
+above), [Duffel](https://duffel.com/) is a genuinely self-service modern
+replacement for what Amadeus/Hotellook used to offer — covers flights (300+
 airlines) *and* hotels (2M+ properties, "Stays") in one account.
 
 Trade-offs versus Travelpayouts, worth knowing before you set it up:
