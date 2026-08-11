@@ -44,7 +44,13 @@ def latest_flight_price(
     """Cheapest recently-found fare for a route. Dates aren't filterable on
     this endpoint (it returns whatever's been recently cached across dates),
     so use it as a rough trend indicator alongside the Amadeus live search,
-    not as a same-date comparison."""
+    not as a same-date comparison.
+
+    Observed response shape (differs from Travelpayouts' published docs —
+    confirmed against a live call): each entry has 'value' (price, not
+    'price'), 'depart_date'/'return_date' (plain dates, not
+    'departure_at'/'return_at'), and 'gate' (the OTA/booking source name,
+    e.g. 'Farera' — there's no 'airline' field)."""
     resp = requests.get(
         FLIGHTS_URL,
         params={
@@ -62,7 +68,7 @@ def latest_flight_price(
     data = resp.json().get("data") or []
     if not data:
         return None
-    return min(data, key=lambda d: d.get("price", float("inf")))
+    return min(data, key=lambda d: d.get("value", float("inf")))
 
 
 def cached_hotel_prices(

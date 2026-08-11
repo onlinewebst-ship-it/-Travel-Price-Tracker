@@ -102,19 +102,22 @@ def track_flights(client: AmadeusClient) -> None:
                 cheapest = None
 
             if cheapest:
-                tp_price = float(cheapest["price"])
+                # Field names confirmed against a live call, not Travelpayouts' docs:
+                # 'value' is the price, 'depart_date'/'return_date' are plain dates,
+                # and there's no 'airline' — 'gate' is the OTA/booking source name.
+                tp_price = float(cheapest["value"])
                 tp_currency = CURRENCY
                 tp_prev_min = db.min_flight_price(label, source="travelpayouts")
                 db.record_flight_price(
                     label=label,
                     origin=route["origin"],
                     destination=route["destination"],
-                    departure_date=cheapest.get("departure_at", route["departure_date"])[:10],
-                    return_date=cheapest.get("return_at", route.get("return_date")),
+                    departure_date=cheapest.get("depart_date", route["departure_date"]),
+                    return_date=cheapest.get("return_date", route.get("return_date")),
                     adults=route.get("adults", 1),
                     price=tp_price,
                     currency=tp_currency,
-                    airline=cheapest.get("airline"),
+                    airline=cheapest.get("gate"),
                     source="travelpayouts",
                 )
                 tp_is_new_low = tp_prev_min is not None and tp_price < tp_prev_min
@@ -209,24 +212,31 @@ def track_hotels(client: AmadeusClient) -> None:
 
                 if tp_hotels:
                     cheapest = min(tp_hotels, key=lambda h: h.get("priceFrom", float("inf")))
-                    tp_price = float(cheapest["priceFrom"])
-                    tp_prev_min = db.min_hotel_price(label, source="hotellook")
-                    db.record_hotel_price(
-                        label=label,
-                        hotel_id=str(cheapest.get("hotelId", "unknown")),
-                        hotel_name=cheapest.get("hotelName"),
-                        city_code=cfg["city_code"],
-                        checkin_date=cfg["checkin_date"],
-                        checkout_date=cfg["checkout_date"],
-                        adults=cfg.get("adults", 1),
-                        price=tp_price,
-                        currency=CURRENCY,
-                        source="hotellook",
-                    )
-                    tp_is_new_low = tp_prev_min is not None and tp_price < tp_prev_min
-                    tp_marker = " *** NEW LOW ***" if tp_is_new_low else ""
-                    print(f"[{label}] hotellook: {cheapest.get('hotelName', 'unknown')}: "
-                          f"{tp_price:.2f} {CURRENCY} ({len(tp_hotels)} cached hotels){tp_marker}")
+                    if "priceFrom" not in cheapest:
+                        # Docs promised this field; the flight endpoint already showed
+                        # Travelpayouts' actual response shape can differ from docs.
+                        # Fail loud with the real keys instead of crashing on a KeyError.
+                        print(f"[{label}] hotellook: ERROR: expected 'priceFrom' field not found. "
+                              f"Got keys: {sorted(cheapest.keys())} — report this so the field mapping can be fixed.")
+                    else:
+                        tp_price = float(cheapest["priceFrom"])
+                        tp_prev_min = db.min_hotel_price(label, source="hotellook")
+                        db.record_hotel_price(
+                            label=label,
+                            hotel_id=str(cheapest.get("hotelId", "unknown")),
+                            hotel_name=cheapest.get("hotelName"),
+                            city_code=cfg["city_code"],
+                            checkin_date=cfg["checkin_date"],
+                            checkout_date=cfg["checkout_date"],
+                            adults=cfg.get("adults", 1),
+                            price=tp_price,
+                            currency=CURRENCY,
+                            source="hotellook",
+                        )
+                        tp_is_new_low = tp_prev_min is not None and tp_price < tp_prev_min
+                        tp_marker = " *** NEW LOW ***" if tp_is_new_low else ""
+                        print(f"[{label}] hotellook: {cheapest.get('hotelName', 'unknown')}: "
+                              f"{tp_price:.2f} {CURRENCY} ({len(tp_hotels)} cached hotels){tp_marker}")
                 else:
                     print(f"[{label}] hotellook: no cached hotel prices found")
 
