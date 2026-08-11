@@ -29,6 +29,12 @@ https://www.travelpayouts.com/ and add `travel-blog.co.uk` as a new
 - Optional: **SubIDs** let you tag links yourself (e.g. per blog post) to
   see which content converts.
 
+**Confirmed for this account: Partner ID `763127`.** This is a public
+tracking number — safe to appear in URLs, not a secret. It is **not** the
+same as `TRAVELPAYOUTS_TOKEN` used by this repo's price tracker (that's a
+separate, longer API secret from the account's API/Tools section) — don't
+substitute one for the other.
+
 Docs: [What is Travelpayouts](https://support.travelpayouts.com/hc/en-us/articles/203955593-What-is-Travelpayouts-and-how-it-works) · [ID and SubID](https://support.travelpayouts.com/hc/en-us/articles/203955653-ID-and-SubID-Affiliate-marker-and-additional-marker) · [Install Drive](https://support.travelpayouts.com/hc/en-us/articles/21844864838290-How-to-install-the-Travelpayouts-script-on-your-website)
 
 ## 3. Affiliate deep links
