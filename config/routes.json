@@ -1,0 +1,18 @@
+[
+  {
+    "label": "LHR-JFK",
+    "origin": "LHR",
+    "destination": "JFK",
+    "departure_date": "2026-10-10",
+    "return_date": "2026-10-17",
+    "adults": 1
+  },
+  {
+    "label": "LHR-BCN",
+    "origin": "LHR",
+    "destination": "BCN",
+    "departure_date": "2026-09-05",
+    "return_date": "2026-09-08",
+    "adults": 1
+  }
+]
