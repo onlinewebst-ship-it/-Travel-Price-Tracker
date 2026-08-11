@@ -6,6 +6,8 @@
     "checkout_date": "2026-09-08",
     "adults": 2,
     "max_hotels": 20,
-    "travelpayouts_location": "Paris"
+    "duffel_latitude": 48.8566,
+    "duffel_longitude": 2.3522,
+    "duffel_radius_km": 5
   }
 ]

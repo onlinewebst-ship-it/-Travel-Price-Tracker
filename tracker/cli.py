@@ -19,7 +19,7 @@ try:
 except ImportError:
     pass
 
-from tracker import alerts, db, travelpayouts_client as tp
+from tracker import alerts, db, duffel_client as duffel, travelpayouts_client as tp
 from tracker.amadeus_client import AmadeusClient, AmadeusError
 
 CONFIG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config")
@@ -131,6 +131,61 @@ def track_flights(client: AmadeusClient | None) -> None:
             else:
                 print(f"[{label}] travelpayouts: no cached fares found")
 
+        if duffel.is_enabled():
+            try:
+                offers = duffel.search_flight_offers(
+                    origin=route["origin"],
+                    destination=route["destination"],
+                    departure_date=route["departure_date"],
+                    return_date=route.get("return_date"),
+                    adults=route.get("adults", 1),
+                )
+            except Exception as e:
+                print(f"[{label}] duffel: ERROR: {e}")
+                offers = []
+
+            if not offers:
+                print(f"[{label}] duffel: no offers found for {route['origin']}->{route['destination']} on {route['departure_date']}")
+            else:
+                best = min(offers, key=lambda o: float(o.get("total_amount", float("inf"))))
+                if "total_amount" not in best:
+                    print(f"[{label}] duffel: ERROR: expected 'total_amount' field not found. "
+                          f"Got keys: {sorted(best.keys())} — report this so the field mapping can be fixed.")
+                else:
+                    d_price = float(best["total_amount"])
+                    d_currency = best.get("total_currency", CURRENCY)
+                    d_airline = best.get("owner", {}).get("name")
+
+                    d_prev_min = db.min_flight_price(label, source="duffel")
+                    db.record_flight_price(
+                        label=label,
+                        origin=route["origin"],
+                        destination=route["destination"],
+                        departure_date=route["departure_date"],
+                        return_date=route.get("return_date"),
+                        adults=route.get("adults", 1),
+                        price=d_price,
+                        currency=d_currency,
+                        airline=d_airline,
+                        source="duffel",
+                    )
+                    d_is_new_low = d_prev_min is not None and d_price < d_prev_min
+                    d_marker = " *** NEW LOW ***" if d_is_new_low else ""
+                    print(f"[{label}] duffel: {route['origin']}->{route['destination']}: "
+                          f"{d_price:.2f} {d_currency} ({len(offers)} offers, live search){d_marker}")
+
+                    if d_is_new_low:
+                        alerts.send_alert(
+                            subject=f"Price drop: {label} now {d_price:.2f} {d_currency}",
+                            body=(
+                                f"New lowest fare found for {route['origin']} -> {route['destination']}\n"
+                                f"Depart: {route['departure_date']}  Return: {route.get('return_date', 'n/a')}\n"
+                                f"Price: {d_price:.2f} {d_currency} (previous low: {d_prev_min:.2f} {d_currency})\n"
+                                f"Airline: {d_airline or 'n/a'}\n"
+                                f"Source: Duffel (live search)"
+                            ),
+                        )
+
 
 def track_hotels(client: AmadeusClient | None) -> None:
     hotels_cfg = _load_json("hotels.json")
@@ -144,6 +199,9 @@ def track_hotels(client: AmadeusClient | None) -> None:
         if client is None:
             print(f"[{label}] amadeus: skipped (no AMADEUS_CLIENT_ID/SECRET configured — "
                   f"Amadeus's free Self-Service API was discontinued 17 Jul 2026, see README)")
+        elif "city_code" not in cfg:
+            print(f"[{label}] amadeus: skipped (no 'city_code' set in config/hotels.json — "
+                  f"only needed if you have Amadeus Enterprise access)")
         else:
             try:
                 hotel_list = client.list_hotels_by_city(cfg["city_code"], max_hotels=cfg.get("max_hotels", 20))
@@ -203,11 +261,74 @@ def track_hotels(client: AmadeusClient | None) -> None:
 
         # Hotellook (engine.hotellook.com) shut down completely on 20 Oct 2025 —
         # confirmed by a live 404 from this exact code, and independently by
-        # Travelpayouts' own "closure of Hotellook" notice. Not attempting the
-        # call anymore: it's a dead host, not a transient error, and hitting it
-        # every run just adds noise and a slow timeout for no result.
-        print(f"[{label}] hotellook: skipped — Hotellook shut down 20 Oct 2025, "
-              f"no confirmed replacement wired in yet (see README)")
+        # Travelpayouts' own "closure of Hotellook" notice. Not attempting that
+        # call anymore: it's a dead host, not a transient error.
+        if not duffel.is_enabled():
+            print(f"[{label}] hotellook: skipped — Hotellook shut down 20 Oct 2025. "
+                  f"No hotel source configured (set DUFFEL_TOKEN in .env, see README)")
+        else:
+            lat = cfg.get("duffel_latitude")
+            lon = cfg.get("duffel_longitude")
+            if lat is None or lon is None:
+                print(f"[{label}] duffel: skipped (no 'duffel_latitude'/'duffel_longitude' "
+                      f"set in config/hotels.json)")
+            else:
+                try:
+                    results = duffel.search_stays(
+                        latitude=lat,
+                        longitude=lon,
+                        checkin_date=cfg["checkin_date"],
+                        checkout_date=cfg["checkout_date"],
+                        adults=cfg.get("adults", 1),
+                        radius_km=cfg.get("duffel_radius_km", 5),
+                    )
+                except Exception as e:
+                    print(f"[{label}] duffel: ERROR: {e}")
+                    results = []
+
+                if not results:
+                    print(f"[{label}] duffel: no hotel results found near ({lat}, {lon})")
+                else:
+                    best = min(results, key=lambda r: float(r.get("cheapest_rate_total_amount", float("inf"))))
+                    if "cheapest_rate_total_amount" not in best:
+                        print(f"[{label}] duffel: ERROR: expected 'cheapest_rate_total_amount' field not found. "
+                              f"Got keys: {sorted(best.keys())} — report this so the field mapping can be fixed.")
+                    else:
+                        d_price = float(best["cheapest_rate_total_amount"])
+                        d_currency = best.get("cheapest_rate_currency", CURRENCY)
+                        accommodation = best.get("accommodation", {})
+                        d_hotel_name = accommodation.get("name")
+                        d_hotel_id = accommodation.get("id", "unknown")
+
+                        d_prev_min = db.min_hotel_price(label, source="duffel")
+                        db.record_hotel_price(
+                            label=label,
+                            hotel_id=d_hotel_id,
+                            hotel_name=d_hotel_name,
+                            city_code=cfg.get("city_code", ""),
+                            checkin_date=cfg["checkin_date"],
+                            checkout_date=cfg["checkout_date"],
+                            adults=cfg.get("adults", 1),
+                            price=d_price,
+                            currency=d_currency,
+                            source="duffel",
+                        )
+                        d_is_new_low = d_prev_min is not None and d_price < d_prev_min
+                        d_marker = " *** NEW LOW ***" if d_is_new_low else ""
+                        print(f"[{label}] duffel: {d_hotel_name or d_hotel_id}: "
+                              f"{d_price:.2f} {d_currency} ({len(results)} results, live search){d_marker}")
+
+                        if d_is_new_low:
+                            alerts.send_alert(
+                                subject=f"Price drop: {label} hotel now {d_price:.2f} {d_currency}",
+                                body=(
+                                    f"New lowest hotel rate found near ({lat}, {lon})\n"
+                                    f"Check-in: {cfg['checkin_date']}  Check-out: {cfg['checkout_date']}\n"
+                                    f"Hotel: {d_hotel_name or d_hotel_id}\n"
+                                    f"Price: {d_price:.2f} {d_currency} (previous low: {d_prev_min:.2f} {d_currency})\n"
+                                    f"Source: Duffel (live search)"
+                                ),
+                            )
 
 
 def cmd_track(_args: argparse.Namespace) -> None:
@@ -220,10 +341,9 @@ def cmd_track(_args: argparse.Namespace) -> None:
         # Hotellook can still run. See README for the current source situation.
         client = None
 
-    if client is None and not tp.is_enabled():
+    if client is None and not tp.is_enabled() and not duffel.is_enabled():
         print("No price sources configured. Amadeus's free API was discontinued — "
-              "set TRAVELPAYOUTS_TOKEN in .env for cached prices, or see README for "
-              "live-search alternatives (e.g. Duffel).")
+              "set TRAVELPAYOUTS_TOKEN and/or DUFFEL_TOKEN in .env (see README).")
         return
 
     print("== Flights ==")
@@ -237,7 +357,7 @@ def cmd_track(_args: argparse.Namespace) -> None:
 
 def _source_summary(min_fn, label: str) -> str:
     parts = []
-    for source in ("amadeus", "travelpayouts", "hotellook"):
+    for source in ("amadeus", "travelpayouts", "duffel"):
         low = min_fn(label, source=source)
         if low is not None:
             parts.append(f"{source}={low:.2f} {CURRENCY}")
@@ -254,11 +374,14 @@ def cmd_list(_args: argparse.Namespace) -> None:
 
     print("\n== Configured hotel searches ==")
     for cfg in _load_json("hotels.json"):
-        print(f"  {cfg['label']}: {cfg['city_code']} {cfg['checkin_date']}..{cfg['checkout_date']} — "
+        where = cfg.get("city_code") or f"({cfg.get('duffel_latitude')}, {cfg.get('duffel_longitude')})"
+        print(f"  {cfg['label']}: {where} {cfg['checkin_date']}..{cfg['checkout_date']} — "
               f"lowest seen: {_source_summary(db.min_hotel_price, cfg['label'])}")
 
     if not tp.is_enabled():
-        print("\n(Travelpayouts/Hotellook second source disabled — set TRAVELPAYOUTS_TOKEN in .env to enable.)")
+        print("\n(Travelpayouts disabled — set TRAVELPAYOUTS_TOKEN in .env to enable.)")
+    if not duffel.is_enabled():
+        print("(Duffel disabled — set DUFFEL_TOKEN in .env to enable live search + hotels.)")
 
 
 def cmd_report(args: argparse.Namespace) -> None:
