@@ -19,7 +19,7 @@ try:
 except ImportError:
     pass
 
-from tracker import alerts, db
+from tracker import alerts, db, travelpayouts_client as tp
 from tracker.amadeus_client import AmadeusClient, AmadeusError
 
 CONFIG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config")
@@ -64,7 +64,7 @@ def track_flights(client: AmadeusClient) -> None:
         currency = best["price"]["currency"]
         airline = (best.get("validatingAirlineCodes") or [None])[0]
 
-        prev_min = db.min_flight_price(label)
+        prev_min = db.min_flight_price(label, source="amadeus")
         db.record_flight_price(
             label=label,
             origin=route["origin"],
@@ -75,11 +75,12 @@ def track_flights(client: AmadeusClient) -> None:
             price=price,
             currency=currency,
             airline=airline,
+            source="amadeus",
         )
 
         is_new_low = prev_min is not None and price < prev_min
         marker = " *** NEW LOW ***" if is_new_low else ""
-        print(f"[{label}] {route['origin']}->{route['destination']}: {price:.2f} {currency} ({len(offers)} offers checked){marker}")
+        print(f"[{label}] amadeus: {route['origin']}->{route['destination']}: {price:.2f} {currency} ({len(offers)} offers checked){marker}")
 
         if is_new_low:
             alerts.send_alert(
@@ -88,9 +89,40 @@ def track_flights(client: AmadeusClient) -> None:
                     f"New lowest fare found for {route['origin']} -> {route['destination']}\n"
                     f"Depart: {route['departure_date']}  Return: {route.get('return_date', 'n/a')}\n"
                     f"Price: {price:.2f} {currency} (previous low: {prev_min:.2f} {currency})\n"
-                    f"Airline: {airline or 'n/a'}"
+                    f"Airline: {airline or 'n/a'}\n"
+                    f"Source: Amadeus (live search)"
                 ),
             )
+
+        if tp.is_enabled():
+            try:
+                cheapest = tp.latest_flight_price(route["origin"], route["destination"], currency=CURRENCY)
+            except Exception as e:
+                print(f"[{label}] travelpayouts: ERROR: {e}")
+                cheapest = None
+
+            if cheapest:
+                tp_price = float(cheapest["price"])
+                tp_currency = CURRENCY
+                tp_prev_min = db.min_flight_price(label, source="travelpayouts")
+                db.record_flight_price(
+                    label=label,
+                    origin=route["origin"],
+                    destination=route["destination"],
+                    departure_date=cheapest.get("departure_at", route["departure_date"])[:10],
+                    return_date=cheapest.get("return_at", route.get("return_date")),
+                    adults=route.get("adults", 1),
+                    price=tp_price,
+                    currency=tp_currency,
+                    airline=cheapest.get("airline"),
+                    source="travelpayouts",
+                )
+                tp_is_new_low = tp_prev_min is not None and tp_price < tp_prev_min
+                tp_marker = " *** NEW LOW ***" if tp_is_new_low else ""
+                print(f"[{label}] travelpayouts: cached fare {tp_price:.2f} {tp_currency} "
+                      f"(any date, found {cheapest.get('found_at', 'n/a')}){tp_marker}")
+            else:
+                print(f"[{label}] travelpayouts: no cached fares found")
 
 
 def track_hotels(client: AmadeusClient) -> None:
@@ -128,7 +160,7 @@ def track_hotels(client: AmadeusClient) -> None:
         hotel_name = best.get("hotel", {}).get("name")
         hotel_id = best.get("hotel", {}).get("hotelId", "unknown")
 
-        prev_min = db.min_hotel_price(label)
+        prev_min = db.min_hotel_price(label, source="amadeus")
         db.record_hotel_price(
             label=label,
             hotel_id=hotel_id,
@@ -139,11 +171,12 @@ def track_hotels(client: AmadeusClient) -> None:
             adults=cfg.get("adults", 1),
             price=price,
             currency=currency,
+            source="amadeus",
         )
 
         is_new_low = prev_min is not None and price < prev_min
         marker = " *** NEW LOW ***" if is_new_low else ""
-        print(f"[{label}] {hotel_name or hotel_id}: {price:.2f} {currency} ({len(offers)} hotels checked){marker}")
+        print(f"[{label}] amadeus: {hotel_name or hotel_id}: {price:.2f} {currency} ({len(offers)} hotels checked){marker}")
 
         if is_new_low:
             alerts.send_alert(
@@ -152,9 +185,50 @@ def track_hotels(client: AmadeusClient) -> None:
                     f"New lowest hotel rate found in {cfg['city_code']}\n"
                     f"Check-in: {cfg['checkin_date']}  Check-out: {cfg['checkout_date']}\n"
                     f"Hotel: {hotel_name or hotel_id}\n"
-                    f"Price: {price:.2f} {currency} (previous low: {prev_min:.2f} {currency})"
+                    f"Price: {price:.2f} {currency} (previous low: {prev_min:.2f} {currency})\n"
+                    f"Source: Amadeus (live search)"
                 ),
             )
+
+        if tp.is_enabled():
+            tp_location = cfg.get("travelpayouts_location")
+            if not tp_location:
+                print(f"[{label}] travelpayouts: skipped (no 'travelpayouts_location' set in config/hotels.json)")
+            else:
+                try:
+                    tp_hotels = tp.cached_hotel_prices(
+                        location=tp_location,
+                        checkin_date=cfg["checkin_date"],
+                        checkout_date=cfg["checkout_date"],
+                        adults=cfg.get("adults", 1),
+                        currency=CURRENCY,
+                    )
+                except Exception as e:
+                    print(f"[{label}] travelpayouts: ERROR: {e}")
+                    tp_hotels = []
+
+                if tp_hotels:
+                    cheapest = min(tp_hotels, key=lambda h: h.get("priceFrom", float("inf")))
+                    tp_price = float(cheapest["priceFrom"])
+                    tp_prev_min = db.min_hotel_price(label, source="hotellook")
+                    db.record_hotel_price(
+                        label=label,
+                        hotel_id=str(cheapest.get("hotelId", "unknown")),
+                        hotel_name=cheapest.get("hotelName"),
+                        city_code=cfg["city_code"],
+                        checkin_date=cfg["checkin_date"],
+                        checkout_date=cfg["checkout_date"],
+                        adults=cfg.get("adults", 1),
+                        price=tp_price,
+                        currency=CURRENCY,
+                        source="hotellook",
+                    )
+                    tp_is_new_low = tp_prev_min is not None and tp_price < tp_prev_min
+                    tp_marker = " *** NEW LOW ***" if tp_is_new_low else ""
+                    print(f"[{label}] hotellook: {cheapest.get('hotelName', 'unknown')}: "
+                          f"{tp_price:.2f} {CURRENCY} ({len(tp_hotels)} cached hotels){tp_marker}")
+                else:
+                    print(f"[{label}] hotellook: no cached hotel prices found")
 
 
 def cmd_track(_args: argparse.Namespace) -> None:
@@ -169,20 +243,30 @@ def cmd_track(_args: argparse.Namespace) -> None:
         print("\n(Email alerts disabled — set SMTP_HOST and ALERT_EMAIL_TO in .env to enable.)")
 
 
+def _source_summary(min_fn, label: str) -> str:
+    parts = []
+    for source in ("amadeus", "travelpayouts", "hotellook"):
+        low = min_fn(label, source=source)
+        if low is not None:
+            parts.append(f"{source}={low:.2f} {CURRENCY}")
+    return ", ".join(parts) if parts else "no data yet"
+
+
 def cmd_list(_args: argparse.Namespace) -> None:
     db.init_db()
     print("== Configured flight routes ==")
     for route in _load_json("routes.json"):
-        low = db.min_flight_price(route["label"])
-        low_str = f"{low:.2f} {CURRENCY}" if low is not None else "no data yet"
         print(f"  {route['label']}: {route['origin']}->{route['destination']} "
-              f"{route['departure_date']}..{route.get('return_date', 'one-way')} — lowest seen: {low_str}")
+              f"{route['departure_date']}..{route.get('return_date', 'one-way')} — "
+              f"lowest seen: {_source_summary(db.min_flight_price, route['label'])}")
 
     print("\n== Configured hotel searches ==")
     for cfg in _load_json("hotels.json"):
-        low = db.min_hotel_price(cfg["label"])
-        low_str = f"{low:.2f} {CURRENCY}" if low is not None else "no data yet"
-        print(f"  {cfg['label']}: {cfg['city_code']} {cfg['checkin_date']}..{cfg['checkout_date']} — lowest seen: {low_str}")
+        print(f"  {cfg['label']}: {cfg['city_code']} {cfg['checkin_date']}..{cfg['checkout_date']} — "
+              f"lowest seen: {_source_summary(db.min_hotel_price, cfg['label'])}")
+
+    if not tp.is_enabled():
+        print("\n(Travelpayouts/Hotellook second source disabled — set TRAVELPAYOUTS_TOKEN in .env to enable.)")
 
 
 def cmd_report(args: argparse.Namespace) -> None:
@@ -194,11 +278,11 @@ def cmd_report(args: argparse.Namespace) -> None:
     if flight_rows:
         print(f"Flight price history for '{label}':")
         for row in flight_rows:
-            print(f"  {row['checked_at']}  {row['price']:.2f} {row['currency']}  ({row['airline'] or 'n/a'})")
+            print(f"  {row['checked_at']}  [{row['source']}]  {row['price']:.2f} {row['currency']}  ({row['airline'] or 'n/a'})")
     elif hotel_rows:
         print(f"Hotel price history for '{label}':")
         for row in hotel_rows:
-            print(f"  {row['checked_at']}  {row['price']:.2f} {row['currency']}  ({row['hotel_name'] or row['hotel_id']})")
+            print(f"  {row['checked_at']}  [{row['source']}]  {row['price']:.2f} {row['currency']}  ({row['hotel_name'] or row['hotel_id']})")
     else:
         print(f"No price history found for label '{label}'. Run 'track' first, or check config for the exact label.")
 

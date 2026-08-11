@@ -65,17 +65,51 @@ actually change:
 0 */6 * * * cd /path/to/-Travel-Price-Tracker && .venv/bin/python -m tracker.cli track >> tracker.log 2>&1
 ```
 
-## 6. Optional email alerts
+## 6. Optional second source: Travelpayouts + Hotellook
 
-Set the `SMTP_*` and `ALERT_EMAIL_TO` variables in `.env` to get an email
-whenever a route or hotel hits a new lowest price. Leave them blank to skip
-email — new lows are always printed to the terminal/log either way.
+[Travelpayouts](https://www.travelpayouts.com/) (Aviasales' affiliate/data
+platform) offers a free, self-service **Data API** for flights and a
+companion **Hotellook** API for hotels — no business approval needed, just a
+free account and an API token. It's a good second opinion alongside Amadeus.
+
+1. Sign up free at https://www.travelpayouts.com/, then find your API token
+   under your account's API/Tools section.
+2. Put it in `TRAVELPAYOUTS_TOKEN` in `.env`.
+3. For hotels, add a `"travelpayouts_location"` field to each entry in
+   `config/hotels.json` (a plain city name like `"Paris"` — see the example).
+
+When the token is set, `track` automatically also queries Travelpayouts/
+Hotellook and stores results tagged with `source = "travelpayouts"` /
+`"hotellook"`, separately from `source = "amadeus"`. `list` and `report`
+show both.
+
+**Important difference:** Travelpayouts' flight endpoint returns the
+cheapest fare *other users have recently found* for that route (any nearby
+date, cached — not a live search for your exact dates), while Amadeus does a
+live search for your exact dates. Treat Travelpayouts as a rough trend
+signal, and Amadeus as the source of truth for actual bookable prices.
+
+### Partner APIs that were considered but aren't usable here
+
+- **Skyscanner Partner API** — no self-service signup; requires a business
+  application with >100k monthly site traffic and ~2 week approval. Not
+  viable for personal tracking.
+- **Kiwi.com Tequila API** — used to offer easy self-serve keys, but new
+  signups now appear to require a direct partnership; too unreliable to
+  build against.
+- **Booking.com Demand API** — partner/affiliate approval only, not open
+  registration.
+
+If any of these becomes accessible to you directly (e.g. you already have
+partner credentials), tell me and I can wire it in the same way as
+Travelpayouts above.
 
 ## Notes
 
-- This only queries Amadeus's own API — it doesn't scrape Airbnb, Booking.com,
-  Google Flights, etc. Those sites' anti-bot protections exist because
-  automated access is against their terms of service.
+- Every source here is an official, documented API reached with your own
+  registered credentials — nothing scrapes Airbnb, Booking.com, Google
+  Flights, etc., and nothing evades anti-bot protection. Those sites block
+  automated access because it's against their terms of service.
 - Amadeus's hotel content and flight inventory won't be 100% identical to
   what you see on Google Flights or Booking.com, but it's real, current GDS
   pricing and is the same category of data those aggregators are built on.

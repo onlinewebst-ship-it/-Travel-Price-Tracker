@@ -5,6 +5,7 @@
     "checkin_date": "2026-09-05",
     "checkout_date": "2026-09-08",
     "adults": 2,
-    "max_hotels": 20
+    "max_hotels": 20,
+    "travelpayouts_location": "Paris"
   }
 ]

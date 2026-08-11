@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS flight_prices (
     price REAL NOT NULL,
     currency TEXT NOT NULL,
     airline TEXT,
+    source TEXT NOT NULL DEFAULT 'amadeus',
     checked_at TEXT NOT NULL
 );
 
@@ -34,6 +35,7 @@ CREATE TABLE IF NOT EXISTS hotel_prices (
     adults INTEGER NOT NULL,
     price REAL NOT NULL,
     currency TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'amadeus',
     checked_at TEXT NOT NULL
 );
 """
@@ -69,13 +71,14 @@ def record_flight_price(
     price: float,
     currency: str,
     airline: str | None,
+    source: str = "amadeus",
 ) -> None:
     with get_conn() as conn:
         conn.execute(
             """INSERT INTO flight_prices
-               (label, origin, destination, departure_date, return_date, adults, price, currency, airline, checked_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (label, origin, destination, departure_date, return_date, adults, price, currency, airline, _now()),
+               (label, origin, destination, departure_date, return_date, adults, price, currency, airline, source, checked_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (label, origin, destination, departure_date, return_date, adults, price, currency, airline, source, _now()),
         )
 
 
@@ -89,40 +92,41 @@ def record_hotel_price(
     adults: int,
     price: float,
     currency: str,
+    source: str = "amadeus",
 ) -> None:
     with get_conn() as conn:
         conn.execute(
             """INSERT INTO hotel_prices
-               (label, hotel_id, hotel_name, city_code, checkin_date, checkout_date, adults, price, currency, checked_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (label, hotel_id, hotel_name, city_code, checkin_date, checkout_date, adults, price, currency, _now()),
+               (label, hotel_id, hotel_name, city_code, checkin_date, checkout_date, adults, price, currency, source, checked_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (label, hotel_id, hotel_name, city_code, checkin_date, checkout_date, adults, price, currency, source, _now()),
         )
 
 
-def min_flight_price(label: str, exclude_latest: bool = False) -> float | None:
+def min_flight_price(label: str, source: str | None = None) -> float | None:
     with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT price FROM flight_prices WHERE label = ? ORDER BY checked_at ASC", (label,)
-        ).fetchall()
+        if source:
+            rows = conn.execute(
+                "SELECT price FROM flight_prices WHERE label = ? AND source = ?", (label, source)
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT price FROM flight_prices WHERE label = ?", (label,)).fetchall()
     if not rows:
         return None
-    prices = [r["price"] for r in rows]
-    if exclude_latest and len(prices) > 1:
-        prices = prices[:-1]
-    return min(prices)
+    return min(r["price"] for r in rows)
 
 
-def min_hotel_price(label: str, exclude_latest: bool = False) -> float | None:
+def min_hotel_price(label: str, source: str | None = None) -> float | None:
     with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT price FROM hotel_prices WHERE label = ? ORDER BY checked_at ASC", (label,)
-        ).fetchall()
+        if source:
+            rows = conn.execute(
+                "SELECT price FROM hotel_prices WHERE label = ? AND source = ?", (label, source)
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT price FROM hotel_prices WHERE label = ?", (label,)).fetchall()
     if not rows:
         return None
-    prices = [r["price"] for r in rows]
-    if exclude_latest and len(prices) > 1:
-        prices = prices[:-1]
-    return min(prices)
+    return min(r["price"] for r in rows)
 
 
 def flight_history(label: str, limit: int = 30) -> list[sqlite3.Row]:
