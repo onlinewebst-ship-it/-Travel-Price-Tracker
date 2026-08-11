@@ -1,21 +1,37 @@
 # Travel Price Tracker
 
-Track flight and hotel prices over time using the official
-[Amadeus for Developers](https://developers.amadeus.com/) Self-Service API —
-no scraping, no proxies, no anti-bot evasion. Amadeus is the same GDS data
-provider that powers many real booking sites, and its free test tier is
-enough for personal price tracking.
+Track flight and hotel prices over time using official travel APIs — no
+scraping, no proxies, no anti-bot evasion.
 
 Prices are shown in GBP by default (configurable) for a UK-based traveller.
 
-## 1. Get free API credentials
+> **⚠️ Amadeus's free Self-Service API is gone.** This project originally
+> used it as the primary source. Amadeus paused new signups in spring 2026
+> and fully decommissioned the Self-Service portal (test API keys included)
+> on **17 July 2026**. Only their Enterprise APIs remain, which require a
+> business application and sales approval — not usable for personal
+> tracking. The code still supports Amadeus if you have Enterprise access,
+> but it's optional now. **[Travelpayouts + Hotellook](#1-get-a-free-travelpayouts-api-token)
+> is the primary source going forward.**
 
-1. Sign up at https://developers.amadeus.com/register (no card needed for the test tier).
-2. Create an app in the dashboard — you'll get an **API Key** (Client ID) and **API Secret** (Client Secret).
-3. Copy `.env.example` to `.env` and fill in `AMADEUS_CLIENT_ID` / `AMADEUS_CLIENT_SECRET`.
+## 1. Get a free Travelpayouts API token
 
-The free test tier has a limited call quota and a smaller flight/hotel dataset
-than production — it's fine for checking prices a few times a day.
+[Travelpayouts](https://www.travelpayouts.com/) (Aviasales' affiliate/data
+platform) offers a free, self-service **Data API** for flights and a
+companion **Hotellook** API for hotels — genuinely instant signup, no
+business approval needed.
+
+1. Sign up free at https://www.travelpayouts.com/, then find your API token
+   under your account's API/Tools section.
+2. Copy `.env.example` to `.env` and set `TRAVELPAYOUTS_TOKEN`.
+3. For hotels, add a `"travelpayouts_location"` field to each entry in
+   `config/hotels.json` (a plain city name like `"Paris"` — see the example).
+
+**Important limitation:** this endpoint returns the cheapest fare *other
+users have recently found* for a route (any nearby date, cached — not a
+live search locked to your exact dates). It's a real, useful trend signal,
+not a bookable quote for your specific trip. See [§4](#4-optional-live-exact-date-search-duffel)
+for a live-search option.
 
 ## 2. Install
 
@@ -23,10 +39,10 @@ than production — it's fine for checking prices a few times a day.
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # then edit .env with your Amadeus keys
+cp .env.example .env   # then edit .env with your Travelpayouts token
 ```
 
-## 3. Configure what to track
+## 3. Configure, run, and schedule it
 
 Edit `config/routes.json` for flights and `config/hotels.json` for hotels.
 Each entry needs a unique `label` (used for history lookups and alerts):
@@ -44,50 +60,51 @@ Each entry needs a unique `label` (used for history lookups and alerts):
 
 Airport/city codes are IATA codes (e.g. `LHR` = London Heathrow, `PAR` = Paris).
 
-## 4. Run it
-
 ```bash
 python -m tracker.cli track     # fetch current prices, store a snapshot, flag new lows
 python -m tracker.cli list      # show all configured searches + lowest price seen
 python -m tracker.cli report LHR-BCN   # full price history for one route/hotel
 ```
 
-Each `track` run appends a row to `prices.db` (SQLite, gitignored) so you build
-up a price history over time. It doesn't overwrite past data.
+Each `track` run appends a row to `prices.db` (SQLite, gitignored) so you
+build up a price history over time. Results are tagged by source
+(`travelpayouts`, `hotellook`, `amadeus`) so different sources' prices are
+never compared against each other as if they were the same kind of quote.
 
-## 5. Schedule it (optional)
-
-Run it a few times a day with cron, matching how often flight/hotel prices
-actually change:
+Schedule it with cron, matching how often prices actually change:
 
 ```cron
 # every 6 hours
 0 */6 * * * cd /path/to/-Travel-Price-Tracker && .venv/bin/python -m tracker.cli track >> tracker.log 2>&1
 ```
 
-## 6. Optional second source: Travelpayouts + Hotellook
+Optional email alerts on a new lowest price: set `SMTP_HOST` and
+`ALERT_EMAIL_TO` in `.env` (see `.env.example`).
 
-[Travelpayouts](https://www.travelpayouts.com/) (Aviasales' affiliate/data
-platform) offers a free, self-service **Data API** for flights and a
-companion **Hotellook** API for hotels — no business approval needed, just a
-free account and an API token. It's a good second opinion alongside Amadeus.
+## 4. Optional: live, exact-date search (Duffel)
 
-1. Sign up free at https://www.travelpayouts.com/, then find your API token
-   under your account's API/Tools section.
-2. Put it in `TRAVELPAYOUTS_TOKEN` in `.env`.
-3. For hotels, add a `"travelpayouts_location"` field to each entry in
-   `config/hotels.json` (a plain city name like `"Paris"` — see the example).
+If you want real live prices for your exact dates (not cached "recently
+found" fares), [Duffel](https://duffel.com/) is a genuinely self-service
+modern replacement for what Amadeus used to offer — covers flights (300+
+airlines) *and* hotels (2M+ properties, "Stays") in one account.
 
-When the token is set, `track` automatically also queries Travelpayouts/
-Hotellook and stores results tagged with `source = "travelpayouts"` /
-`"hotellook"`, separately from `source = "amadeus"`. `list` and `report`
-show both.
+Trade-offs versus Travelpayouts, worth knowing before you set it up:
+- Sign-up is instant, but their **test mode only returns fake sandbox data**
+  (a made-up airline called "Duffel Airways") — useless for real price
+  tracking.
+- Real prices require **live mode**, which means "activating" your account
+  with identity/payment details, since Duffel is built for travel sellers,
+  not just data consumers. You don't need to be an accredited travel
+  agency, but you do need to go through that activation step.
+- Pricing is pay-per-outcome, not pay-per-search: no charge for searching
+  itself (aside from a small $0.005/search fee only if your search-to-book
+  ratio exceeds 1500:1, which personal tracking won't come close to), $3
+  per confirmed booking (irrelevant here — this tool never books anything).
 
-**Important difference:** Travelpayouts' flight endpoint returns the
-cheapest fare *other users have recently found* for that route (any nearby
-date, cached — not a live search for your exact dates), while Amadeus does a
-live search for your exact dates. Treat Travelpayouts as a rough trend
-signal, and Amadeus as the source of truth for actual bookable prices.
+This isn't wired into the code yet, deliberately — it involves handing over
+account/identity details, which is your call to make, not something to set
+up on your behalf without asking. Say the word and it can be added the same
+way Travelpayouts was.
 
 ### Partner APIs that were considered but aren't usable here
 
@@ -100,19 +117,14 @@ signal, and Amadeus as the source of truth for actual bookable prices.
 - **Booking.com Demand API** — partner/affiliate approval only, not open
   registration.
 
-If any of these becomes accessible to you directly (e.g. you already have
-partner credentials), tell me and I can wire it in the same way as
-Travelpayouts above.
-
 ## Notes
 
 - Every source here is an official, documented API reached with your own
   registered credentials — nothing scrapes Airbnb, Booking.com, Google
   Flights, etc., and nothing evades anti-bot protection. Those sites block
   automated access because it's against their terms of service.
-- Amadeus's hotel content and flight inventory won't be 100% identical to
-  what you see on Google Flights or Booking.com, but it's real, current GDS
-  pricing and is the same category of data those aggregators are built on.
-- If you outgrow the free test tier, Amadeus offers a paid production tier
-  with a full dataset and higher quotas — swap `AMADEUS_BASE_URL` to
-  `https://api.amadeus.com` and use production keys.
+- Travelpayouts' response field names have been found to differ from their
+  own published docs in places (confirmed against live calls — see git
+  history). If a future API response looks unexpected, `track` reports the
+  actual field names it received rather than crashing, so it's easy to
+  diagnose and fix.

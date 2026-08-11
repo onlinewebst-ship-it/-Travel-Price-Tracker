@@ -34,7 +34,7 @@ def _load_json(name: str) -> list[dict]:
         return json.load(f)
 
 
-def track_flights(client: AmadeusClient) -> None:
+def track_flights(client: AmadeusClient | None) -> None:
     routes = _load_json("routes.json")
     if not routes:
         print("No routes configured in config/routes.json")
@@ -42,57 +42,61 @@ def track_flights(client: AmadeusClient) -> None:
 
     for route in routes:
         label = route["label"]
-        try:
-            offers = client.search_flight_offers(
-                origin=route["origin"],
-                destination=route["destination"],
-                departure_date=route["departure_date"],
-                return_date=route.get("return_date"),
-                adults=route.get("adults", 1),
-                currency=CURRENCY,
-            )
-        except AmadeusError as e:
-            print(f"[{label}] ERROR: {e}")
-            continue
 
-        if not offers:
-            print(f"[{label}] No offers found for {route['origin']}->{route['destination']} on {route['departure_date']}")
-            continue
+        if client is None:
+            print(f"[{label}] amadeus: skipped (no AMADEUS_CLIENT_ID/SECRET configured — "
+                  f"Amadeus's free Self-Service API was discontinued 17 Jul 2026, see README)")
+        else:
+            try:
+                offers = client.search_flight_offers(
+                    origin=route["origin"],
+                    destination=route["destination"],
+                    departure_date=route["departure_date"],
+                    return_date=route.get("return_date"),
+                    adults=route.get("adults", 1),
+                    currency=CURRENCY,
+                )
+            except AmadeusError as e:
+                print(f"[{label}] amadeus: ERROR: {e}")
+                offers = None
 
-        best = min(offers, key=lambda o: float(o["price"]["total"]))
-        price = float(best["price"]["total"])
-        currency = best["price"]["currency"]
-        airline = (best.get("validatingAirlineCodes") or [None])[0]
+            if offers is not None and not offers:
+                print(f"[{label}] amadeus: no offers found for {route['origin']}->{route['destination']} on {route['departure_date']}")
+            elif offers:
+                best = min(offers, key=lambda o: float(o["price"]["total"]))
+                price = float(best["price"]["total"])
+                currency = best["price"]["currency"]
+                airline = (best.get("validatingAirlineCodes") or [None])[0]
 
-        prev_min = db.min_flight_price(label, source="amadeus")
-        db.record_flight_price(
-            label=label,
-            origin=route["origin"],
-            destination=route["destination"],
-            departure_date=route["departure_date"],
-            return_date=route.get("return_date"),
-            adults=route.get("adults", 1),
-            price=price,
-            currency=currency,
-            airline=airline,
-            source="amadeus",
-        )
+                prev_min = db.min_flight_price(label, source="amadeus")
+                db.record_flight_price(
+                    label=label,
+                    origin=route["origin"],
+                    destination=route["destination"],
+                    departure_date=route["departure_date"],
+                    return_date=route.get("return_date"),
+                    adults=route.get("adults", 1),
+                    price=price,
+                    currency=currency,
+                    airline=airline,
+                    source="amadeus",
+                )
 
-        is_new_low = prev_min is not None and price < prev_min
-        marker = " *** NEW LOW ***" if is_new_low else ""
-        print(f"[{label}] amadeus: {route['origin']}->{route['destination']}: {price:.2f} {currency} ({len(offers)} offers checked){marker}")
+                is_new_low = prev_min is not None and price < prev_min
+                marker = " *** NEW LOW ***" if is_new_low else ""
+                print(f"[{label}] amadeus: {route['origin']}->{route['destination']}: {price:.2f} {currency} ({len(offers)} offers checked){marker}")
 
-        if is_new_low:
-            alerts.send_alert(
-                subject=f"Price drop: {label} now {price:.2f} {currency}",
-                body=(
-                    f"New lowest fare found for {route['origin']} -> {route['destination']}\n"
-                    f"Depart: {route['departure_date']}  Return: {route.get('return_date', 'n/a')}\n"
-                    f"Price: {price:.2f} {currency} (previous low: {prev_min:.2f} {currency})\n"
-                    f"Airline: {airline or 'n/a'}\n"
-                    f"Source: Amadeus (live search)"
-                ),
-            )
+                if is_new_low:
+                    alerts.send_alert(
+                        subject=f"Price drop: {label} now {price:.2f} {currency}",
+                        body=(
+                            f"New lowest fare found for {route['origin']} -> {route['destination']}\n"
+                            f"Depart: {route['departure_date']}  Return: {route.get('return_date', 'n/a')}\n"
+                            f"Price: {price:.2f} {currency} (previous low: {prev_min:.2f} {currency})\n"
+                            f"Airline: {airline or 'n/a'}\n"
+                            f"Source: Amadeus (live search)"
+                        ),
+                    )
 
         if tp.is_enabled():
             try:
@@ -128,7 +132,7 @@ def track_flights(client: AmadeusClient) -> None:
                 print(f"[{label}] travelpayouts: no cached fares found")
 
 
-def track_hotels(client: AmadeusClient) -> None:
+def track_hotels(client: AmadeusClient | None) -> None:
     hotels_cfg = _load_json("hotels.json")
     if not hotels_cfg:
         print("No hotel searches configured in config/hotels.json")
@@ -136,62 +140,66 @@ def track_hotels(client: AmadeusClient) -> None:
 
     for cfg in hotels_cfg:
         label = cfg["label"]
-        try:
-            hotel_list = client.list_hotels_by_city(cfg["city_code"], max_hotels=cfg.get("max_hotels", 20))
-            hotel_ids = [h["hotelId"] for h in hotel_list if "hotelId" in h]
-            offers = client.search_hotel_offers(
-                hotel_ids=hotel_ids,
-                checkin_date=cfg["checkin_date"],
-                checkout_date=cfg["checkout_date"],
-                adults=cfg.get("adults", 1),
-                currency=CURRENCY,
-            )
-        except AmadeusError as e:
-            print(f"[{label}] ERROR: {e}")
-            continue
 
-        if not offers:
-            print(f"[{label}] No hotel offers found for {cfg['city_code']}")
-            continue
+        if client is None:
+            print(f"[{label}] amadeus: skipped (no AMADEUS_CLIENT_ID/SECRET configured — "
+                  f"Amadeus's free Self-Service API was discontinued 17 Jul 2026, see README)")
+        else:
+            try:
+                hotel_list = client.list_hotels_by_city(cfg["city_code"], max_hotels=cfg.get("max_hotels", 20))
+                hotel_ids = [h["hotelId"] for h in hotel_list if "hotelId" in h]
+                offers = client.search_hotel_offers(
+                    hotel_ids=hotel_ids,
+                    checkin_date=cfg["checkin_date"],
+                    checkout_date=cfg["checkout_date"],
+                    adults=cfg.get("adults", 1),
+                    currency=CURRENCY,
+                )
+            except AmadeusError as e:
+                print(f"[{label}] amadeus: ERROR: {e}")
+                offers = None
 
-        def offer_price(o: dict) -> float:
-            return float(o["offers"][0]["price"]["total"])
+            if offers is not None and not offers:
+                print(f"[{label}] amadeus: no hotel offers found for {cfg['city_code']}")
+            elif offers:
+                def offer_price(o: dict) -> float:
+                    return float(o["offers"][0]["price"]["total"])
 
-        best = min(offers, key=offer_price)
-        price = offer_price(best)
-        currency = best["offers"][0]["price"]["currency"]
-        hotel_name = best.get("hotel", {}).get("name")
-        hotel_id = best.get("hotel", {}).get("hotelId", "unknown")
+                best = min(offers, key=offer_price)
+                price = offer_price(best)
+                currency = best["offers"][0]["price"]["currency"]
+                hotel_name = best.get("hotel", {}).get("name")
+                hotel_id = best.get("hotel", {}).get("hotelId", "unknown")
 
-        prev_min = db.min_hotel_price(label, source="amadeus")
-        db.record_hotel_price(
-            label=label,
-            hotel_id=hotel_id,
-            hotel_name=hotel_name,
-            city_code=cfg["city_code"],
-            checkin_date=cfg["checkin_date"],
-            checkout_date=cfg["checkout_date"],
-            adults=cfg.get("adults", 1),
-            price=price,
-            currency=currency,
-            source="amadeus",
-        )
+                prev_min = db.min_hotel_price(label, source="amadeus")
+                db.record_hotel_price(
+                    label=label,
+                    hotel_id=hotel_id,
+                    hotel_name=hotel_name,
+                    city_code=cfg["city_code"],
+                    checkin_date=cfg["checkin_date"],
+                    checkout_date=cfg["checkout_date"],
+                    adults=cfg.get("adults", 1),
+                    price=price,
+                    currency=currency,
+                    source="amadeus",
+                )
 
-        is_new_low = prev_min is not None and price < prev_min
-        marker = " *** NEW LOW ***" if is_new_low else ""
-        print(f"[{label}] amadeus: {hotel_name or hotel_id}: {price:.2f} {currency} ({len(offers)} hotels checked){marker}")
+                is_new_low = prev_min is not None and price < prev_min
+                marker = " *** NEW LOW ***" if is_new_low else ""
+                print(f"[{label}] amadeus: {hotel_name or hotel_id}: {price:.2f} {currency} ({len(offers)} hotels checked){marker}")
 
-        if is_new_low:
-            alerts.send_alert(
-                subject=f"Price drop: {label} hotel now {price:.2f} {currency}",
-                body=(
-                    f"New lowest hotel rate found in {cfg['city_code']}\n"
-                    f"Check-in: {cfg['checkin_date']}  Check-out: {cfg['checkout_date']}\n"
-                    f"Hotel: {hotel_name or hotel_id}\n"
-                    f"Price: {price:.2f} {currency} (previous low: {prev_min:.2f} {currency})\n"
-                    f"Source: Amadeus (live search)"
-                ),
-            )
+                if is_new_low:
+                    alerts.send_alert(
+                        subject=f"Price drop: {label} hotel now {price:.2f} {currency}",
+                        body=(
+                            f"New lowest hotel rate found in {cfg['city_code']}\n"
+                            f"Check-in: {cfg['checkin_date']}  Check-out: {cfg['checkout_date']}\n"
+                            f"Hotel: {hotel_name or hotel_id}\n"
+                            f"Price: {price:.2f} {currency} (previous low: {prev_min:.2f} {currency})\n"
+                            f"Source: Amadeus (live search)"
+                        ),
+                    )
 
         if tp.is_enabled():
             tp_location = cfg.get("travelpayouts_location")
@@ -243,7 +251,20 @@ def track_hotels(client: AmadeusClient) -> None:
 
 def cmd_track(_args: argparse.Namespace) -> None:
     db.init_db()
-    client = AmadeusClient()
+    try:
+        client = AmadeusClient()
+    except AmadeusError:
+        # Amadeus's free Self-Service API portal was discontinued 17 Jul 2026 —
+        # no new signups, existing keys deactivated. Not fatal: Travelpayouts/
+        # Hotellook can still run. See README for the current source situation.
+        client = None
+
+    if client is None and not tp.is_enabled():
+        print("No price sources configured. Amadeus's free API was discontinued — "
+              "set TRAVELPAYOUTS_TOKEN in .env for cached prices, or see README for "
+              "live-search alternatives (e.g. Duffel).")
+        return
+
     print("== Flights ==")
     track_flights(client)
     print("\n== Hotels ==")
@@ -298,7 +319,7 @@ def cmd_report(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Travel Price Tracker (flights & hotels via Amadeus API)")
+    parser = argparse.ArgumentParser(description="Travel Price Tracker (flights & hotels via Travelpayouts/Hotellook, optionally Amadeus)")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("track", help="Run all configured searches and record prices").set_defaults(func=cmd_track)
