@@ -1,15 +1,15 @@
 [
   {
     "label": "Budva",
-    "city_code": "BUD",
+    "city_code": "TIV",
     "checkin_date": "2026-08-27",
     "checkout_date": "2026-09-02",
     "adults": 2,
     "max_hotels": 20,
-    "duffel_latitude": 48.8566,
-    "duffel_longitude": 2.3522,
+    "duffel_latitude": 42.2911,
+    "duffel_longitude": 18.8403,
     "duffel_radius_km": 5,
     "liteapi_city_name": "Budva",
-    "liteapi_country_code": "MNE"
+    "liteapi_country_code": "ME"
   }
 ]
