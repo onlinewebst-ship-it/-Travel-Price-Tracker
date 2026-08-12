@@ -2,8 +2,8 @@
   {
     "label": "Paris",
     "city_code": "PAR",
-    "checkin_date": "2026-09-05",
-    "checkout_date": "2026-09-08",
+    "checkin_date": "2026-08-27",
+    "checkout_date": "2026-09-02",
     "adults": 2,
     "max_hotels": 20,
     "duffel_latitude": 48.8566,
