@@ -80,15 +80,11 @@ no code changes needed then, just get access and add
 
 [LiteAPI](https://www.liteapi.travel/) (by Nuitée) is the current hotel
 source — a free, instant, no-credit-card sandbox signup, unlike Duffel
-Stays.
-
-**Unresolved as of writing:** it's not yet confirmed whether a sandbox key
-(`sand_...`) returns real-looking rates or synthetic test data — LiteAPI's
-docs call it a "production-like sandbox" without saying explicitly either
-way (Duffel, by contrast, documents its test mode as fake outright). Run
-`track` with a sandbox key and sanity-check the prices it returns against
-what you'd expect for that hotel/dates before trusting them; if they look
-synthetic, a production key requires going through LiteAPI's onboarding.
+Stays. **Working and confirmed live**: a sandbox key correctly returned a
+real, specific, identifiable property (a real B&B Hotels location in
+Paris's 17th arrondissement, not a generic "Test Hotel" placeholder) at a
+plausible rate — unlike Duffel, LiteAPI's sandbox key returns real rate
+data, not synthetic test data.
 
 Setup:
 1. Sign up free at https://www.liteapi.travel/ (redirects into a "Nuitee
@@ -188,10 +184,13 @@ Optional email alerts on a new lowest price: set `SMTP_HOST` and
   registered credentials — nothing scrapes Airbnb, Booking.com, Google
   Flights, etc., and nothing evades anti-bot protection. Those sites block
   automated access because it's against their terms of service.
-- Travelpayouts' response field names have been found to differ from their
-  own published docs in places (confirmed against live calls — see git
-  history). The Duffel integration follows Duffel's documented schema but
-  hasn't been confirmed against a live call the same way — if `track`
-  reports an "expected field not found" error with a list of actual keys,
-  that's this working as intended: it surfaces the real shape instead of
-  crashing, so it's easy to fix the field mapping from the diagnostic.
+- Travelpayouts' response field names differ from their own published docs
+  in places, and Duffel Stays turned out to be sales-gated despite reading
+  as self-service — both found by testing live, not by trusting docs (see
+  git history). Travelpayouts (flights), Duffel (flights), and LiteAPI
+  (hotels) are all now confirmed working against live calls with real
+  data. If `track` ever reports an "expected field not found" error with a
+  list of actual keys — e.g. if a provider changes their response shape in
+  the future — that's the defensive handling working as intended: it
+  surfaces the real shape instead of crashing, so it's easy to fix the
+  field mapping from the diagnostic.
