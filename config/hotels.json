@@ -8,6 +8,8 @@
     "max_hotels": 20,
     "duffel_latitude": 48.8566,
     "duffel_longitude": 2.3522,
-    "duffel_radius_km": 5
+    "duffel_radius_km": 5,
+    "liteapi_city_name": "Paris",
+    "liteapi_country_code": "FR"
   }
 ]

@@ -13,18 +13,17 @@ Prices are shown in GBP by default (configurable) for a UK-based traveller.
 > tracking. The code still supports Amadeus if you have Enterprise access,
 > but it's optional now.
 >
-> **⚠️ Hotellook is also gone, and hotel tracking currently has no working
-> source at all.** The hotel data source this project originally used
-> shut down completely as a brand on **20 October 2025**. Duffel Stays
-> looked like a self-service replacement from their docs, but a live test
-> confirmed it's actually gated behind a sales conversation
-> ("`This feature is not enabled for your account. Please contact sales`")
-> — not self-serve after all. Flights work; hotels are parked until either
-> Duffel Stays gets enabled (contact their sales) or another source turns up.
+> **⚠️ Hotellook is also gone.** The hotel data source this project
+> originally used shut down completely as a brand on **20 October 2025**.
+> Duffel Stays looked like a self-service replacement from their docs, but
+> a live test confirmed it's gated behind a sales conversation — not
+> self-serve after all (code's still there, ready to go if that ever
+> changes). **[LiteAPI](#3-liteapi-hotels)** is the current hotel source instead.
 >
 > **Current setup: [Travelpayouts](#1-travelpayouts-cached-flight-fares)
 > for cached flight fares, [Duffel](#2-duffel-live-flights) for live
-> exact-date flights. Either works alone; both together is best.**
+> exact-date flights, [LiteAPI](#3-liteapi-hotels) for hotels. Each works
+> independently — set up whichever combination you want.**
 
 ## 1. Travelpayouts (cached flight fares)
 
@@ -77,7 +76,29 @@ go for hotels the moment Stays access is actually enabled on an account —
 no code changes needed then, just get access and add
 `duffel_latitude`/`duffel_longitude` to `config/hotels.json` entries.)
 
-## 3. Install
+## 3. LiteAPI (hotels)
+
+[LiteAPI](https://www.liteapi.travel/) (by Nuitée) is the current hotel
+source — a free, instant, no-credit-card sandbox signup, unlike Duffel
+Stays.
+
+**Unresolved as of writing:** it's not yet confirmed whether a sandbox key
+(`sand_...`) returns real-looking rates or synthetic test data — LiteAPI's
+docs call it a "production-like sandbox" without saying explicitly either
+way (Duffel, by contrast, documents its test mode as fake outright). Run
+`track` with a sandbox key and sanity-check the prices it returns against
+what you'd expect for that hotel/dates before trusting them; if they look
+synthetic, a production key requires going through LiteAPI's onboarding.
+
+Setup:
+1. Sign up free at https://www.liteapi.travel/ (redirects into a "Nuitee
+   Connect" branded dashboard — that's expected, same company).
+2. Dashboard → Developer page → API Keys tab → copy the sandbox key.
+3. Set `LITEAPI_KEY` in `.env`.
+4. Each entry in `config/hotels.json` needs `liteapi_city_name` and
+   `liteapi_country_code` (ISO 2-letter, e.g. `FR` for France).
+
+## 4. Install
 
 ```bash
 python3 -m venv .venv
@@ -86,7 +107,7 @@ pip install -r requirements.txt
 cp .env.example .env   # then edit .env with your token(s)
 ```
 
-## 4. Configure, run, and schedule it
+## 5. Configure, run, and schedule it
 
 Edit `config/routes.json` for flights. Each entry needs a unique `label`
 (used for history lookups and alerts):
@@ -102,10 +123,8 @@ Edit `config/routes.json` for flights. Each entry needs a unique `label`
 }
 ```
 
-`config/hotels.json` is pre-filled for Duffel Stays (see the format below),
-but currently produces a "not enabled for your account" error on every run
-until Duffel Stays access is actually granted — see the warning at the top.
-Nothing to configure here until then; leave it as-is.
+Edit `config/hotels.json` for hotels — the fields for whichever source(s)
+you've configured:
 
 ```json
 {
@@ -113,6 +132,8 @@ Nothing to configure here until then; leave it as-is.
   "checkin_date": "2026-09-05",
   "checkout_date": "2026-09-08",
   "adults": 2,
+  "liteapi_city_name": "Paris",
+  "liteapi_country_code": "FR",
   "duffel_latitude": 48.8566,
   "duffel_longitude": 2.3522,
   "duffel_radius_km": 5
@@ -121,7 +142,8 @@ Nothing to configure here until then; leave it as-is.
 
 Airport codes are IATA codes (e.g. `LHR` = London Heathrow). For
 `duffel_latitude`/`duffel_longitude`, look up the city centre coordinates
-(e.g. search "\<city\> latitude longitude").
+(e.g. search "\<city\> latitude longitude"). `liteapi_country_code` is the
+ISO 2-letter country code (e.g. `FR`, `GB`, `US`).
 
 ```bash
 python -m tracker.cli track     # fetch current prices, store a snapshot, flag new lows
@@ -131,8 +153,9 @@ python -m tracker.cli report LHR-BCN   # full price history for one route/hotel
 
 Each `track` run appends a row to `prices.db` (SQLite, gitignored) so you
 build up a price history over time. Results are tagged by source
-(`travelpayouts`, `duffel`, `amadeus`) so different sources' prices are
-never compared against each other as if they were the same kind of quote.
+(`travelpayouts`, `duffel`, `liteapi`, `amadeus`) so different sources'
+prices are never compared against each other as if they were the same
+kind of quote.
 
 Schedule it with cron, matching how often prices actually change:
 

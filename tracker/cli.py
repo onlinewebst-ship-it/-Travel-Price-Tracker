@@ -19,7 +19,7 @@ try:
 except ImportError:
     pass
 
-from tracker import alerts, db, duffel_client as duffel, travelpayouts_client as tp
+from tracker import alerts, db, duffel_client as duffel, liteapi_client as liteapi, travelpayouts_client as tp
 from tracker.amadeus_client import AmadeusClient, AmadeusError
 
 CONFIG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config")
@@ -263,10 +263,10 @@ def track_hotels(client: AmadeusClient | None) -> None:
         # confirmed by a live 404 from this exact code, and independently by
         # Travelpayouts' own "closure of Hotellook" notice. Not attempting that
         # call anymore: it's a dead host, not a transient error.
-        if not duffel.is_enabled():
+        if not duffel.is_enabled() and not liteapi.is_enabled():
             print(f"[{label}] hotellook: skipped — Hotellook shut down 20 Oct 2025. "
-                  f"No hotel source configured (set DUFFEL_TOKEN in .env, see README)")
-        else:
+                  f"No hotel source configured (set DUFFEL_TOKEN or LITEAPI_KEY in .env, see README)")
+        if duffel.is_enabled():
             lat = cfg.get("duffel_latitude")
             lon = cfg.get("duffel_longitude")
             if lat is None or lon is None:
@@ -330,6 +330,81 @@ def track_hotels(client: AmadeusClient | None) -> None:
                                 ),
                             )
 
+        if liteapi.is_enabled():
+            city_name = cfg.get("liteapi_city_name")
+            country_code = cfg.get("liteapi_country_code")
+            if not city_name or not country_code:
+                print(f"[{label}] liteapi: skipped (no 'liteapi_city_name'/'liteapi_country_code' "
+                      f"set in config/hotels.json)")
+            else:
+                hotel_list: list[dict] = []
+                try:
+                    hotel_list = liteapi.list_hotels(country_code, city_name, limit=cfg.get("max_hotels", 20))
+                    hotel_ids = [h["id"] for h in hotel_list if "id" in h]
+                    rates_data = liteapi.search_rates(
+                        hotel_ids=hotel_ids,
+                        checkin_date=cfg["checkin_date"],
+                        checkout_date=cfg["checkout_date"],
+                        adults=cfg.get("adults", 1),
+                        currency=CURRENCY,
+                    )
+                except Exception as e:
+                    print(f"[{label}] liteapi: ERROR: {e}")
+                    rates_data = []
+
+                if not rates_data:
+                    print(f"[{label}] liteapi: no rates found for {city_name}, {country_code}")
+                else:
+                    hotel_name_by_id = {h.get("id"): h.get("name") for h in hotel_list}
+                    li_price = None
+                    li_currency = CURRENCY
+                    li_hotel_id = None
+                    for entry in rates_data:
+                        result = liteapi.cheapest_rate(entry)
+                        if result is None:
+                            continue
+                        amount, curr = result
+                        if li_price is None or amount < li_price:
+                            li_price, li_currency = amount, (curr or CURRENCY)
+                            li_hotel_id = entry.get("hotelId")
+
+                    if li_price is None:
+                        sample_keys = sorted(rates_data[0].keys()) if rates_data else []
+                        print(f"[{label}] liteapi: ERROR: couldn't find a rate in the response shape. "
+                              f"First entry keys: {sample_keys} — report this so the field mapping can be fixed.")
+                    else:
+                        li_hotel_name = hotel_name_by_id.get(li_hotel_id, li_hotel_id)
+
+                        li_prev_min = db.min_hotel_price(label, source="liteapi")
+                        db.record_hotel_price(
+                            label=label,
+                            hotel_id=str(li_hotel_id or "unknown"),
+                            hotel_name=li_hotel_name,
+                            city_code=cfg.get("city_code", ""),
+                            checkin_date=cfg["checkin_date"],
+                            checkout_date=cfg["checkout_date"],
+                            adults=cfg.get("adults", 1),
+                            price=li_price,
+                            currency=li_currency,
+                            source="liteapi",
+                        )
+                        li_is_new_low = li_prev_min is not None and li_price < li_prev_min
+                        li_marker = " *** NEW LOW ***" if li_is_new_low else ""
+                        print(f"[{label}] liteapi: {li_hotel_name}: {li_price:.2f} {li_currency} "
+                              f"({len(rates_data)} hotels checked){li_marker}")
+
+                        if li_is_new_low:
+                            alerts.send_alert(
+                                subject=f"Price drop: {label} hotel now {li_price:.2f} {li_currency}",
+                                body=(
+                                    f"New lowest hotel rate found in {city_name}, {country_code}\n"
+                                    f"Check-in: {cfg['checkin_date']}  Check-out: {cfg['checkout_date']}\n"
+                                    f"Hotel: {li_hotel_name}\n"
+                                    f"Price: {li_price:.2f} {li_currency} (previous low: {li_prev_min:.2f} {li_currency})\n"
+                                    f"Source: LiteAPI"
+                                ),
+                            )
+
 
 def cmd_track(_args: argparse.Namespace) -> None:
     db.init_db()
@@ -341,9 +416,9 @@ def cmd_track(_args: argparse.Namespace) -> None:
         # Hotellook can still run. See README for the current source situation.
         client = None
 
-    if client is None and not tp.is_enabled() and not duffel.is_enabled():
+    if client is None and not tp.is_enabled() and not duffel.is_enabled() and not liteapi.is_enabled():
         print("No price sources configured. Amadeus's free API was discontinued — "
-              "set TRAVELPAYOUTS_TOKEN and/or DUFFEL_TOKEN in .env (see README).")
+              "set TRAVELPAYOUTS_TOKEN, DUFFEL_TOKEN, and/or LITEAPI_KEY in .env (see README).")
         return
 
     print("== Flights ==")
@@ -357,7 +432,7 @@ def cmd_track(_args: argparse.Namespace) -> None:
 
 def _source_summary(min_fn, label: str) -> str:
     parts = []
-    for source in ("amadeus", "travelpayouts", "duffel"):
+    for source in ("amadeus", "travelpayouts", "duffel", "liteapi"):
         low = min_fn(label, source=source)
         if low is not None:
             parts.append(f"{source}={low:.2f} {CURRENCY}")
@@ -381,7 +456,9 @@ def cmd_list(_args: argparse.Namespace) -> None:
     if not tp.is_enabled():
         print("\n(Travelpayouts disabled — set TRAVELPAYOUTS_TOKEN in .env to enable.)")
     if not duffel.is_enabled():
-        print("(Duffel disabled — set DUFFEL_TOKEN in .env to enable live search + hotels.)")
+        print("(Duffel disabled — set DUFFEL_TOKEN in .env to enable live flight search.)")
+    if not liteapi.is_enabled():
+        print("(LiteAPI disabled — set LITEAPI_KEY in .env to enable hotel search.)")
 
 
 def cmd_report(args: argparse.Namespace) -> None:
