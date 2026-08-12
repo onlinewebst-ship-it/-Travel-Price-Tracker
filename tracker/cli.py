@@ -126,8 +126,11 @@ def track_flights(client: AmadeusClient | None) -> None:
                 )
                 tp_is_new_low = tp_prev_min is not None and tp_price < tp_prev_min
                 tp_marker = " *** NEW LOW ***" if tp_is_new_low else ""
+                tp_dates = f"{cheapest.get('depart_date', '?')} -> {cheapest.get('return_date', '?')}"
+                tp_gate = cheapest.get("gate", "unknown source")
                 print(f"[{label}] travelpayouts: cached fare {tp_price:.2f} {tp_currency} "
-                      f"(any date, found {cheapest.get('found_at', 'n/a')}){tp_marker}")
+                      f"for {tp_dates} via {tp_gate} (found {cheapest.get('found_at', 'n/a')}, "
+                      f"not necessarily your configured dates — see README){tp_marker}")
             else:
                 print(f"[{label}] travelpayouts: no cached fares found")
 
