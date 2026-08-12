@@ -1,7 +1,7 @@
 [
   {
-    "label": "Paris",
-    "city_code": "PAR",
+    "label": "Budva",
+    "city_code": "BUD",
     "checkin_date": "2026-08-27",
     "checkout_date": "2026-09-02",
     "adults": 2,
@@ -9,7 +9,7 @@
     "duffel_latitude": 48.8566,
     "duffel_longitude": 2.3522,
     "duffel_radius_km": 5,
-    "liteapi_city_name": "Paris",
-    "liteapi_country_code": "FR"
+    "liteapi_city_name": "Budva",
+    "liteapi_country_code": "MNE"
   }
 ]
