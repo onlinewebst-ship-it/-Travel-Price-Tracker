@@ -1,18 +1,26 @@
 [
   {
-    "label": "LHR-JFK",
-    "origin": "LHR",
-    "destination": "JFK",
-    "departure_date": "2026-10-10",
-    "return_date": "2026-10-17",
+    "label": "MAN-TGD",
+    "origin": "MAN",
+    "destination": "TGD",
+    "departure_date": "2026-08-27",
+    "return_date": "2026-09-02",
     "adults": 1
   },
   {
-    "label": "LHR-BCN",
-    "origin": "LHR",
-    "destination": "BCN",
-    "departure_date": "2026-09-05",
-    "return_date": "2026-09-08",
+    "label": "MAN-TIV",
+    "origin": "MAN",
+    "destination": "TIV",
+    "departure_date": "2026-08-27",
+    "return_date": "2026-09-02",
+    "adults": 1
+  },
+  {
+    "label": "MAN-DBV",
+    "origin": "MAN",
+    "destination": "DBV",
+    "departure_date": "2026-08-27",
+    "return_date": "2026-09-02",
     "adults": 1
   }
 ]
