@@ -15,4 +15,12 @@
     "return_date": "2026-09-02",
     "adults": 1
   }
+  {
+    "label": "MAN-DBV",
+    "origin": "DBV",
+    "destination": "DBV",
+    "departure_date": "2026-08-27",
+    "return_date": "2026-09-02",
+    "adults": 1
+  }
 ]
