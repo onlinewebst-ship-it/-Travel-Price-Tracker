@@ -1,0 +1,12 @@
+[
+  {
+    "label": "Budva",
+    "city_code": "TIV",
+    "checkin_date": "2026-08-27",
+    "checkout_date": "2026-09-02",
+    "adults": 2,
+    "max_hotels": 20,
+    "liteapi_city_name": "Budva",
+    "liteapi_country_code": "ME"
+  }
+]
